@@ -156,8 +156,6 @@ class Network():
 
 			self.policy = tf.nn.softmax(self.policy_linear)
 
-			self.action = tf.squeeze(tf.multinomial(self.policy_linear - tf.reduce_max(self.policy_linear, [1], keep_dims=True), 1), [1])
-
 			"""
 			This region builds the operations for updating the trainable
 			variables (weights) of the Neural Network. The global worker

@@ -169,18 +169,17 @@ class Worker():
 						- pi(s) = (NUM_ACTIONS)
 						- V(s) = (1)
 					"""
-					#action_prob_batch, v_batch, lstm_state = session.run([self.local_net.policy, self.local_net.value, self.local_net.state_out],
-					v_batch, a, lstm_state = session.run([self.local_net.value, self.local_net.action, self.local_net.state_out],
+					action_prob_batch, v_batch, lstm_state = session.run([self.local_net.policy, self.local_net.value, self.local_net.state_out],
 																		feed_dict={	self.local_net.state:[s],
 																					self.local_net.state_in[0]:lstm_state[0],
 				                            										self.local_net.state_in[1]:lstm_state[1]})
-					#action_prob = action_prob_batch[0]
+					action_prob = action_prob_batch[0]
 					v = v_batch[0][0]
 
 					"""
 					Select a random action based on the action's probability distribution
 					"""
-					#a = np.random.choice(a_indexes, p=action_prob)
+					a = np.random.choice(a_indexes, p=action_prob)
 					actions_chosen[a] += 1
 
 					"""
