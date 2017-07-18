@@ -4,10 +4,14 @@ import time, random, threading
 import multiprocessing
 import scipy.misc
 from Network import *
+from Env_Doom import *
 from Env_Atari import *
 
 SAVER_INTERVAL = 100
 RND_ACTION_PCT = 0.0
+
+ATARI	= 0
+DOOM 	= 1
 
 
 """
@@ -48,17 +52,15 @@ def calculate_advantage(r, v, bootstrap, size, gamma):
 	return A_batch
 
 
-def discount_x(x, gamma):
-    return scipy.signal.lfilter([1], [1, -gamma], x[::-1], axis=0)[::-1]
-
-
-
 
 
 class Worker():
 
-	def __init__(self, num_id, gamma, global_episodes, model_path, render, save_img):
+	def __init__(self, num_id, env_id, gamma, global_episodes, model_path, render, save_img):
 		self.name = "worker_" + str(num_id)
+		"""
+		Only worker 0 renders the game
+		"""
 		self.num_id = num_id
 		self.increse_global_episode = global_episodes.assign_add(1)
 		self.model_path = model_path
@@ -68,7 +70,11 @@ class Worker():
 			- we choose which environment we are going to use
 			- we then retrieve some information based on the chosen environment
 		"""
-		self.environment = Env_Atari('Pong-v0', render, num_id, save_img)
+		self.env_id = env_id
+		if self.env_id == ATARI:
+			self.environment = Env_Atari('Pong-v0', render, num_id, save_img)
+		else:
+			self.environment = Env_Doom(render, num_id, save_img)
 		self.num_actions = self.environment.get_num_action()
 		self.height, self.width, self.channels = self.environment.get_state_space()
 
@@ -102,16 +108,12 @@ class Worker():
 		"""
 		Calculate the discounted rewards for each state in the batch
 		"""
-		#R_batch = discount(rewards, bootstrap, len(rewards), self.local_net.gamma)
-		R_batch = discount_x(np.asarray(rewards.tolist() + [bootstrap]), self.local_net.gamma)[:-1]
+		R_batch = discount(rewards, bootstrap, len(rewards), self.local_net.gamma)
 
 		"""
 		Calculate the Advantage function for each step in the batch
 		"""
-		#A_batch = calculate_advantage(rewards, values, bootstrap, len(rewards), self.local_net.gamma)
-		value_plus = np.asarray(values.tolist() + [bootstrap])
-		A_batch = rewards + self.local_net.gamma * value_plus[1:] - value_plus[:-1]
-		A_batch = discount_x(A_batch, self.local_net.gamma)
+		A_batch = calculate_advantage(rewards, values, bootstrap, len(rewards), self.local_net.gamma)
 
 		"""
 		Apply gradients w.r.t. the variables of the local network into the global network
@@ -167,17 +169,18 @@ class Worker():
 						- pi(s) = (NUM_ACTIONS)
 						- V(s) = (1)
 					"""
-					action_prob_batch, v_batch, lstm_state = session.run([self.local_net.policy, self.local_net.value, self.local_net.state_out],
+					#action_prob_batch, v_batch, lstm_state = session.run([self.local_net.policy, self.local_net.value, self.local_net.state_out],
+					v_batch, a, lstm_state = session.run([self.local_net.value, self.local_net.action, self.local_net.state_out],
 																		feed_dict={	self.local_net.state:[s],
 																					self.local_net.state_in[0]:lstm_state[0],
 				                            										self.local_net.state_in[1]:lstm_state[1]})
-					action_prob = action_prob_batch[0]
+					#action_prob = action_prob_batch[0]
 					v = v_batch[0][0]
 
 					"""
 					Select a random action based on the action's probability distribution
 					"""
-					a = np.random.choice(a_indexes, p=action_prob)
+					#a = np.random.choice(a_indexes, p=action_prob)
 					actions_chosen[a] += 1
 
 					"""
@@ -216,8 +219,12 @@ class Worker():
 
 					s = s1
 					episode_step_count += 1
+					if episode_step_count >= MAX_EPISODE_LENGTH:
+						print "\t\tMAX EPISODE LENGTH reached! (",self.name,")"
 
 					if done == True:
+						if episode_step_count < BATCH_SIZE:
+							print "\t\tEpisode finished before filling a batch"
 						break
 
 				if len(batch_buffer) > 0:

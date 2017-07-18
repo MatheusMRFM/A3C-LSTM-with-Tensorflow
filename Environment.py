@@ -2,6 +2,10 @@ import numpy as np
 import time, random
 from abc import ABCMeta, abstractmethod
 
+RESEIZE_HEIGHT = 47
+RESEIZE_WIDTH = 47
+CHANNELS = 1
+
 class Environment():
 	__metaclass__ = ABCMeta
 

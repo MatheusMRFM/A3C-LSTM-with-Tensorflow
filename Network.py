@@ -16,7 +16,7 @@ value retrieved from "Asynchronous Methods for Deep Reinforcement Learning"
 """
 BETA = 0.01
 
-LEARNING_RATE = 0.0001
+LEARNING_RATE = 1e-4
 DECAY = 0.99
 EPSILON = 0.1
 
@@ -25,9 +25,7 @@ GAMMA = 0.99
 BATCH_SIZE = 20
 
 
-"""
-Used to initialize weights for policy and value output layers
-"""
+#Used to initialize weights for policy and value output layers
 def normalized_columns_initializer(std=1.0):
 	def _initializer(shape, dtype=None, partition_info=None):
 		out = np.random.randn(*shape).astype(np.float32)
@@ -51,9 +49,6 @@ class Network():
 		self.channels = channels
 		self.gamma = gamma
 
-		"""
-		Choose the optimizer here
-		"""
 		#self.optimizer = tf.train.RMSPropOptimizer(learning_rate=LEARNING_RATE, decay=DECAY)
 		#self.optimizer = tf.train.AdadeltaOptimizer(LEARNING_RATE, rho=DECAY)
 		self.optimizer 	= tf.train.AdamOptimizer(LEARNING_RATE)
@@ -70,22 +65,21 @@ class Network():
 			 - "Asynchronous Methods for Deep Reinforcement Learning"
 			"""
 			self.state = tf.placeholder("float", [None, self.height, self.width, self.channels], name="state")
-			conv = tf.layers.conv2d(inputs=self.state, 	activation=tf.nn.elu, filters=32, kernel_size=[3,3], strides=[2,2], padding='valid')
-			conv = tf.layers.conv2d(inputs=conv, 		activation=tf.nn.elu, filters=32, kernel_size=[3,3], strides=[2,2], padding='valid')
-			conv = tf.layers.conv2d(inputs=conv, 		activation=tf.nn.elu, filters=32, kernel_size=[3,3], strides=[2,2], padding='valid')
-			conv = tf.layers.conv2d(inputs=conv, 		activation=tf.nn.elu, filters=32, kernel_size=[3,3], strides=[2,2], padding='valid')
+			conv = slim.conv2d(inputs=self.state, 	activation_fn=tf.nn.elu, num_outputs=32, kernel_size=[3,3], stride=[2,2], padding='same')
+			conv = slim.conv2d(inputs=conv, 	    activation_fn=tf.nn.elu, num_outputs=32, kernel_size=[3,3], stride=[2,2], padding='same')
+			conv = slim.conv2d(inputs=conv, 	    activation_fn=tf.nn.elu, num_outputs=32, kernel_size=[3,3], stride=[2,2], padding='same')
+			conv = slim.conv2d(inputs=conv, 	    activation_fn=tf.nn.elu, num_outputs=32, kernel_size=[3,3], stride=[2,2], padding='same')
 			conv_flat = slim.flatten(conv)
 			"""
 			 - hidden.get_shape() ===> (?, UNITS_H1)
 			"""
-			#hidden = slim.fully_connected(conv_flat, UNITS_H1, activation_fn=tf.nn.elu)
+			#hidden = slim.fully_connected(conv_flat, UNITS_H1, activation_fn=tf.nn.relu)
 
 
 
 			"""
 			Create new dimension, so that the input for the LSTM is:
 			[batch_size=1, time_step=Conv_layer_batch_size, input_dim=UNITS_H1]
-			(or conv_flat size if not using the hidden layer)
 				- lstm_input.get_shape() ===> (1, ?, UNITS_H1)
 			"""
 			#lstm_input = tf.expand_dims(hidden, [0])
@@ -162,6 +156,8 @@ class Network():
 
 			self.policy = tf.nn.softmax(self.policy_linear)
 
+			self.action = tf.squeeze(tf.multinomial(self.policy_linear - tf.reduce_max(self.policy_linear, [1], keep_dims=True), 1), [1])
+
 			"""
 			This region builds the operations for updating the trainable
 			variables (weights) of the Neural Network. The global worker
@@ -177,7 +173,7 @@ class Network():
 				"""
 				v = tf.reshape(self.value, [-1])
 
-				log_policy = tf.nn.log_softmax(self.policy_linear + 10e-8)
+				log_policy = tf.nn.log_softmax(self.policy_linear + 1e-20)
 				responsible_outputs = tf.reduce_sum(log_policy * actions_onehot, [1])
 				#responsible_outputs = tf.reduce_sum(self.policy * actions_onehot, [1])
 				"""
@@ -187,10 +183,10 @@ class Network():
 				  - Entropy function presented in Eq 21 from "Function
 					optimization using connectionist reinforcement learning algorithms"
 				"""
+                #policy_loss = - tf.reduce_sum(tf.log(responsible_outputs + 1e-13)*self.A)
+				policy_loss = - tf.reduce_sum(responsible_outputs*self.A)
 				value_loss = 0.5 * tf.reduce_sum(tf.square(v - self.R))
 				entropy = - tf.reduce_sum(self.policy * log_policy)
-				#policy_loss = - tf.reduce_sum(tf.log(responsible_outputs + 10e-8)*self.A)
-				policy_loss = - tf.reduce_sum(responsible_outputs*self.A)
 				self.total_loss = 0.5 * value_loss + policy_loss - entropy * BETA
 
 				"""
