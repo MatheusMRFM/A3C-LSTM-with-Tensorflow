@@ -41,7 +41,7 @@ with tf.device("/cpu:0"):
 Initializes tensorflow variables
 """
 #session = tf.Session()
-with tf.Session() as session:
+with tf.Session(config=tf.ConfigProto(intra_op_parallelism_threads=1)) as session:
 	saver = tf.train.Saver(max_to_keep=5)
 	if load:
 		print ("Loading....")
