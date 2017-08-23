@@ -178,6 +178,7 @@ class Worker():
 				episode_batches = 0
 				episode_mean_loss = 0
 				episode_reward = 0
+				episode_values = []
 				done = False
 				actions_chosen = np.zeros((self.num_actions), np.int64)
 
