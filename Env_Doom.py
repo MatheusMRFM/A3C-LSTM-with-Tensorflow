@@ -64,9 +64,15 @@ class Env_Doom(Environment):
 		return self.current_state
 
 	#-------------------------------------------------------------------
-	def perform_action(self, action):
-		r = self.env.make_action(self.actions[action]) / 100.0
-		d = self.env.is_episode_finished()
+	def perform_action(self, action, skip_count):
+		R = 0
+		for i in range(0, skip_count):
+			R += self.env.make_action(self.actions[action]) / 100.0
+			d = self.env.is_episode_finished()
+			if d == True:
+				break
+
+		r = R / skip_count
 		if d == False:
 			s = self.env.get_state().screen_buffer
 			self.current_state = self.process_image(s)

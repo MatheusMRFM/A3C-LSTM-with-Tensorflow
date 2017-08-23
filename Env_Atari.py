@@ -46,7 +46,7 @@ class Env_Atari(Environment):
 
 	#-------------------------------------------------------------------
 	def get_num_action(self):
-		if (self.env.spec.id == "Pong-v0" or self.env.spec.id == "Breakout-v0"):
+		if (self.env.spec.id == "Pong-v0" or self.env.spec.id == "Breakout-v0" or self.env.spec.id == "PongDeterministic-v3"):
 			return 3
 		return self.env.action_space.n
 
@@ -55,7 +55,7 @@ class Env_Atari(Environment):
 		return self.current_state
 
 	#-------------------------------------------------------------------
-	def perform_action(self, action):
+	def perform_action(self, action, skip_count):
 		if self.render == True:
 			lock.acquire()
 			self.env.render()
@@ -64,15 +64,22 @@ class Env_Atari(Environment):
 		If the game is Pong or Breakout, the valid actions are 1, 2, 3, that is,
 		action 0 is removed. Therefore, we add 1 to the current action to make it valid
 		"""
-		if (self.env.spec.id == "Pong-v0" or self.env.spec.id == "Breakout-v0"):
+		if (self.env.spec.id == "Pong-v0" or self.env.spec.id == "Breakout-v0" or self.env.spec.id == "PongDeterministic-v3"):
 			a = action + 1
 		else:
 			a = action
 
+		R = 0
+		count = 0
+		for i in range(0, skip_count):
+			s1, r, d, i = self.env.step(a)
+			R += r
+			count += 1
+			if d == True:
+				break
 
-		s1, r, d, i = self.env.step(a)
+		r = R / count
 		self.current_state = self.process_image(s1)
-
 		self.finished = d
 		self.info = i
 		if self.save_img == True:
@@ -96,7 +103,9 @@ class Env_Atari(Environment):
 		"""
 		Transform the image into grayscale and resizes it
 		"""
-		s = resize(rgb2gray(image), (self.height, self.width))
+		s = image[34:34+160, :160]
+		s = resize(rgb2gray(s), (2*self.height, 2*self.width))
+		s = resize(s, (self.height, self.width))
 		return np.expand_dims(s, axis=2)
 
 	#-------------------------------------------------------------------

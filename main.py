@@ -3,8 +3,6 @@ from time import time
 import numpy as np
 import tensorflow as tf
 import time, random, threading
-from keras.models import *
-from keras.layers import *
 import multiprocessing
 from Network import *
 from Worker import *
@@ -14,20 +12,19 @@ from Worker import *
 - 	To render the environment, set render = True
 - 	To save the images that are fed to the network, set save_img = True. For
 	more info in this option, check the "save_image" method of the Env_Atari class
-- 	env = ATARI or env = DOOM (defined in Environment.py)
 """
-load = False
-render = False
+load = True
+render = True
 save_img = False
 env = ATARI
 num_workers = 4		#multiprocessing.cpu_count()
-model_path = './model'
+model_path = '/home/matheus/Documentos/Doutorado/Modelos_Treinamento/A3C/Tensorflow'
 
 tf.reset_default_graph()
 
 """
-Creates the master worker that maintains the master network. We then
-initialize the workers array.
+Creates the master worker that maintains the master network.
+We then initialize the workers array.
 """
 global_episodes = tf.Variable(0,dtype=tf.int32,name='global_episodes',trainable=False)
 with tf.device("/cpu:0"):
@@ -40,7 +37,6 @@ with tf.device("/cpu:0"):
 """
 Initializes tensorflow variables
 """
-#session = tf.Session()
 with tf.Session() as session:
 	saver = tf.train.Saver(max_to_keep=5)
 	if load:
@@ -63,5 +59,3 @@ with tf.Session() as session:
 		worker_threads.append(t)
 
 	coord.join(worker_threads)
-
-#session.close()

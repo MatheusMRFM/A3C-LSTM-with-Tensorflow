@@ -30,7 +30,7 @@ class Environment():
 		pass
 
 	@abstractmethod
-	def perform_action(self, action):
+	def perform_action(self, action, skip_count):
 		pass
 
 	@abstractmethod

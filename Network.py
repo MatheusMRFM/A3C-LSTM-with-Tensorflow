@@ -2,37 +2,42 @@ import numpy as np
 import tensorflow as tf
 import time, random, threading
 import tensorflow.contrib.slim as slim
+import tensorflow.contrib.layers as layer
 import multiprocessing
 
 """
- value retrieved from "Playing FPS Games with Deep Reinforcement Learning":
-	- UNITS_H1 = 4608
-	- UNITS_LSTM = 512
+Values used in
+	-"Playing FPS Games with Deep Reinforcement Learning":
+		- UNITS_H1 = 4608
+		- UNITS_LSTM = 512
+	- "Asynchronous Methods for Deep Reinforcement Learning"
+		- UNITS_H1 = 256
+		- UNITS_LSTM = 256
 """
 UNITS_H1 = 256
 UNITS_LSTM = 256
-"""
-value retrieved from "Asynchronous Methods for Deep Reinforcement Learning"
-"""
-BETA = 0.01
 
-LEARNING_RATE = 1e-4
-DECAY = 0.99
-EPSILON = 0.1
-
-GAMMA = 0.99
+BETA 			= 0.01
+GAMMA 			= 0.99
+LEARNING_RATE 	= 1e-4
+DECAY 			= 0.99
+EPSILON 		= 0.1
+NORM_CLIP		= 40.0
 
 BATCH_SIZE = 20
 
+SMALL_VALUE = 1e-20
 
-#Used to initialize weights for policy and value output layers
+"""
+Copied from the Universe starter agent from OpenAI. In its description, it says:
+'Used to initialize weights for policy and value output layers'
+"""
 def normalized_columns_initializer(std=1.0):
 	def _initializer(shape, dtype=None, partition_info=None):
 		out = np.random.randn(*shape).astype(np.float32)
 		out *= std / np.sqrt(np.square(out).sum(axis=0, keepdims=True))
 		return tf.constant(out)
 	return _initializer
-
 
 
 
@@ -49,6 +54,9 @@ class Network():
 		self.channels = channels
 		self.gamma = gamma
 
+		"""
+		Choose the optimier to be used
+		"""
 		#self.optimizer = tf.train.RMSPropOptimizer(learning_rate=LEARNING_RATE, decay=DECAY)
 		#self.optimizer = tf.train.AdadeltaOptimizer(LEARNING_RATE, rho=DECAY)
 		self.optimizer 	= tf.train.AdamOptimizer(LEARNING_RATE)
@@ -58,32 +66,44 @@ class Network():
 
 	def build_network(self):
 		with tf.variable_scope(self.scope):
-			"""
-			The following model was built based in
-			 - "Deep Recurrent Q-Learning for Partially Observable MDPs"
-			 - "Playing FPS Games with Deep Reinforcement Learning"
-			 - "Asynchronous Methods for Deep Reinforcement Learning"
-			"""
 			self.state = tf.placeholder("float", [None, self.height, self.width, self.channels], name="state")
-			conv = slim.conv2d(inputs=self.state, 	activation_fn=tf.nn.elu, num_outputs=32, kernel_size=[3,3], stride=[2,2], padding='same')
-			conv = slim.conv2d(inputs=conv, 	    activation_fn=tf.nn.elu, num_outputs=32, kernel_size=[3,3], stride=[2,2], padding='same')
-			conv = slim.conv2d(inputs=conv, 	    activation_fn=tf.nn.elu, num_outputs=32, kernel_size=[3,3], stride=[2,2], padding='same')
-			conv = slim.conv2d(inputs=conv, 	    activation_fn=tf.nn.elu, num_outputs=32, kernel_size=[3,3], stride=[2,2], padding='same')
-			conv_flat = slim.flatten(conv)
 			"""
-			 - hidden.get_shape() ===> (?, UNITS_H1)
+			Creates a series of convolutional layers
 			"""
-			#hidden = slim.fully_connected(conv_flat, UNITS_H1, activation_fn=tf.nn.relu)
+			conv = tf.layers.conv2d(inputs=self.state,
+									activation=tf.nn.elu,
+									bias_initializer=tf.constant_initializer(0.0),
+									filters=32, kernel_size=[3,3], strides=[2,2], padding='same')
+			conv = tf.layers.conv2d(inputs=conv,
+									activation=tf.nn.elu,
+									bias_initializer=tf.constant_initializer(0.0),
+									filters=32, kernel_size=[3,3], strides=[2,2], padding='same')
+			conv = tf.layers.conv2d(inputs=conv,
+									activation=tf.nn.elu,
+									bias_initializer=tf.constant_initializer(0.0),
+									filters=32, kernel_size=[3,3], strides=[2,2], padding='same')
+			conv = tf.layers.conv2d(inputs=conv,
+									activation=tf.nn.elu,
+									bias_initializer=tf.constant_initializer(0.0),
+									filters=32, kernel_size=[3,3], strides=[2,2], padding='same')
 
-
+			h = slim.flatten(conv)
+			"""
+			To use a fully connected layer, just uncomment the following line
+				- h.get_shape() ===> (?, UNITS_H1)
+			"""
+			#h = layer.fully_connected(h, UNITS_H1, activation_fn=tf.nn.elu, bias_initializer=tf.constant_initializer(0.0))
 
 			"""
-			Create new dimension, so that the input for the LSTM is:
+			Create new dimension, so that the input for the LSTM is (if using the
+			fully connected layer):
 			[batch_size=1, time_step=Conv_layer_batch_size, input_dim=UNITS_H1]
 				- lstm_input.get_shape() ===> (1, ?, UNITS_H1)
+			or, if not using the fully connected layer, it is:
+			[batch_size=1, time_step=Conv_layer_batch_size, input_dim=SIZE_CONV_FLAT]
+				- lstm_input.get_shape() ===> (1, ?, SIZE_CONV_FLAT)
 			"""
-			#lstm_input = tf.expand_dims(hidden, [0])
-			lstm_input = tf.expand_dims(conv_flat, [0])
+			lstm_input = tf.expand_dims(h, [0])
 
 			"""
 			Retrives the original batch size (used in the Convolutional layer).
@@ -121,13 +141,15 @@ class Network():
 				- lstm_out.get_shape() ===> (1, ?, UNITS_LSTM)
 				- lstm_state.get_shape() ===> (1, ?, UNITS_LSTM)
 			"""
-			lstm_out, lstm_state_out = tf.nn.dynamic_rnn(lstm_cell, lstm_input, initial_state=lstm_state_in, sequence_length=step_size, time_major=False)
+			lstm_out, lstm_state_out = tf.nn.dynamic_rnn(lstm_cell, lstm_input, initial_state=lstm_state_in,
+			 												sequence_length=step_size, time_major=False)
 
 			"""
 			Breaks the final state into 'c' and 'h'
 			"""
 			lstm_c, lstm_h = lstm_state_out
-			self.state_out = (lstm_c, lstm_h)
+			#self.state_out = [lstm_c[:1, :], lstm_h[:1, :]]
+			self.state_out = [lstm_c, lstm_h]
 			"""
 			Remove the extra fake batch_size=1 dimension, such that the
 			output of the LSTM is [Conv_layer_batch_size, UNITS_LSTM]
@@ -143,18 +165,20 @@ class Network():
 				- self.policy.get_shape() ===> (?, NUM_ACTIONS)
 				- self.value.get_shape() ===> (?, 1)
 			"""
-			self.policy_linear = slim.fully_connected(	lstm_out,
+			self.policy_linear = layer.fully_connected(	lstm_out,
 														self.num_actions,
 														activation_fn=None,
 														weights_initializer=normalized_columns_initializer(0.01),
-                										biases_initializer=None)
-			self.value = slim.fully_connected(	lstm_out,
+                										biases_initializer=tf.constant_initializer(0))
+			self.value = layer.fully_connected(	lstm_out,
 												1,
 												activation_fn=None,
 												weights_initializer=normalized_columns_initializer(1.0),
-                								biases_initializer=None)
+                								biases_initializer=tf.constant_initializer(0))
 
 			self.policy = tf.nn.softmax(self.policy_linear)
+
+			self.action = tf.squeeze(tf.multinomial(self.policy_linear - tf.reduce_max(self.policy_linear, [1], keep_dims=True), 1), [1])
 
 			"""
 			This region builds the operations for updating the trainable
@@ -171,29 +195,28 @@ class Network():
 				"""
 				v = tf.reshape(self.value, [-1])
 
-				log_policy = tf.nn.log_softmax(self.policy_linear + 1e-20)
+				log_policy = tf.nn.log_softmax(tf.clip_by_value(self.policy_linear, SMALL_VALUE, 1.0))
 				responsible_outputs = tf.reduce_sum(log_policy * actions_onehot, [1])
-				#responsible_outputs = tf.reduce_sum(self.policy * actions_onehot, [1])
 				"""
 				Loss funtions:
 				  - Value Loss retrieved from "Asynchronous Methods for Deep
 					Reinforcement Learning"
-				  - Entropy function presented in Eq 21 from "Function
-					optimization using connectionist reinforcement learning algorithms"
+				  - Entropy function presented in Eq 21 from "Function optimization
+				  using connectionist reinforcement learning algorithms"
 				"""
-                #policy_loss = - tf.reduce_sum(tf.log(responsible_outputs + 1e-13)*self.A)
 				policy_loss = - tf.reduce_sum(responsible_outputs*self.A)
 				value_loss = 0.5 * tf.reduce_sum(tf.square(v - self.R))
 				entropy = - tf.reduce_sum(self.policy * log_policy)
 				self.total_loss = 0.5 * value_loss + policy_loss - entropy * BETA
 
 				"""
-				Compute gradients of the loss function with respect to
-				the variables of the local network
+				Compute gradients of the loss function with respect to the
+				variables of the local network. We then clip the gradients to
+				avoid updating the network with high gradient values
 				"""
 				local_params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.scope)
 				gradients = tf.gradients(self.total_loss, local_params)
-				grads, grad_norms = tf.clip_by_global_norm(gradients, 40.0)
+				grads, grad_norms = tf.clip_by_global_norm(gradients, NORM_CLIP)
 
 				"""
 				Apply gradients w.r.t. the variables of the local network into the

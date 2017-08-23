@@ -4,14 +4,19 @@ import time, random, threading
 import multiprocessing
 import scipy.misc
 from Network import *
-from Env_Doom import *
+#from Env_Doom import *
 from Env_Atari import *
 
 SAVER_INTERVAL = 100
-RND_ACTION_PCT = 0.0
+SUMMARY_INTERVAL = 4
+SUMMARY_NAME = "A3C_"
 
 ATARI	= 0
 DOOM 	= 1
+"""
+The number of frames to skip. When skipping a frame, the last action is repeated
+"""
+SKIP_COUNT = 1
 
 
 """
@@ -52,12 +57,22 @@ def calculate_advantage(r, v, bootstrap, size, gamma):
 	return A_batch
 
 
+def discount_adv(x, gamma):
+	return scipy.signal.lfilter([1], [1, -gamma], x[::-1], axis=0)[::-1]
+
+
+
+
+
+
 
 
 class Worker():
 
 	def __init__(self, num_id, env_id, gamma, global_episodes, model_path, render, save_img):
 		self.name = "worker_" + str(num_id)
+		self.summary_writer = tf.summary.FileWriter("./train/"+SUMMARY_NAME+self.name)
+		self.global_episodes = global_episodes
 		"""
 		Only worker 0 renders the game
 		"""
@@ -72,7 +87,7 @@ class Worker():
 		"""
 		self.env_id = env_id
 		if self.env_id == ATARI:
-			self.environment = Env_Atari('Pong-v0', render, num_id, save_img)
+			self.environment = Env_Atari('PongDeterministic-v3', render, num_id, save_img)
 		else:
 			self.environment = Env_Doom(render, num_id, save_img)
 		self.num_actions = self.environment.get_num_action()
@@ -94,6 +109,7 @@ class Worker():
 		actions = batch[:,1]
 		rewards = batch[:,2]
 		values 	= batch[:,3]
+		features= batch[:,4]
 
 		"""
 		Reshape the 'states' array to fit the shape (B, height, width, channels)
@@ -109,16 +125,27 @@ class Worker():
 		Calculate the discounted rewards for each state in the batch
 		"""
 		R_batch = discount(rewards, bootstrap, len(rewards), self.local_net.gamma)
+		#R_batch = np.asarray(rewards.tolist() + [bootstrap])
+		#R_batch = discount_adv(R_batch, self.local_net.gamma)[:-1]
 
 		"""
 		Calculate the Advantage function for each step in the batch
 		"""
 		A_batch = calculate_advantage(rewards, values, bootstrap, len(rewards), self.local_net.gamma)
+		#value_plus = np.asarray(values.tolist() + [bootstrap])
+		#A_batch = rewards + self.local_net.gamma * value_plus[1:] - value_plus[:-1]
+		#A_batch = discount_adv(A_batch, self.local_net.gamma)
+
+		"""
+		Retrieve only the LSTM state that occured at the begining of the current
+		batch, that is, the first LSTM state of the batch. The remaining features
+		in the batch are discarted
+		"""
+		lstm_state = features[0]
 
 		"""
 		Apply gradients w.r.t. the variables of the local network into the global network
 		"""
-		lstm_state = self.local_net.lstm_state_init
 		grads, batch_loss = session.run([self.local_net.apply_grads, self.local_net.total_loss],
 								feed_dict={	self.local_net.state_in[0]:lstm_state[0],
 											self.local_net.state_in[1]:lstm_state[1],
@@ -133,7 +160,12 @@ class Worker():
 	#-------------------------------------------------------------------
 	def work(self, coordinator, session, saver):
 		a_indexes = np.arange(self.num_actions)
+		episode_rewards = []
+		episode_lengths = []
+		episode_mean_values = []
 
+		local_count = session.run(self.global_episodes)
+		global_count = 0
 		with session.as_default(), session.graph.as_default():
 			while not coordinator.should_stop():
 				"""
@@ -160,40 +192,33 @@ class Worker():
 				"""
 				while done == False and episode_step_count < MAX_EPISODE_LENGTH:
 					"""
-					Retrieve the the value fnction and the action probabilities
-					of state s (pi(s) and V(s)), whose shapes are:
-						- pi(s) = (?, NUM_ACTIONS)
+					Retrieve the the value fnction (V(s)), with shape:
 						- V(s) = (?, 1)
 					Where ? is the batch_size. In the following case,
-					batch_size = 1, so we reshape both outputs to:
-						- pi(s) = (NUM_ACTIONS)
+					batch_size = 1, so we reshape the outputs to:
 						- V(s) = (1)
 					"""
-					action_prob_batch, v_batch, lstm_state = session.run([self.local_net.policy, self.local_net.value, self.local_net.state_out],
+					a, v_batch, lstm_state = session.run([self.local_net.action, self.local_net.value, self.local_net.state_out],
 																		feed_dict={	self.local_net.state:[s],
 																					self.local_net.state_in[0]:lstm_state[0],
 				                            										self.local_net.state_in[1]:lstm_state[1]})
-					action_prob = action_prob_batch[0]
 					v = v_batch[0][0]
-
-					"""
-					Select a random action based on the action's probability distribution
-					"""
-					a = np.random.choice(a_indexes, p=action_prob)
+					a = a[0]
 					actions_chosen[a] += 1
 
 					"""
 					Perform the action
 					"""
-					s1, r, done = self.environment.perform_action(a)
+					s1, r, done = self.environment.perform_action(a, SKIP_COUNT)
 					if done == True:
 						s1 = s
 
 					"""
 					Insert data into the batch buffer
 					"""
-					batch_buffer.append([s,a,r,v])
+					batch_buffer.append([s,a,r,v,lstm_state])
 					episode_reward += r
+					episode_values.append(v)
 
 					"""
 					Update the master network if the batch buffer is full
@@ -214,28 +239,50 @@ class Worker():
 						batch_buffer = []
 						session.run(self.update_local_net)
 
-
-
 					s = s1
 					episode_step_count += 1
-					if episode_step_count >= MAX_EPISODE_LENGTH:
-						print "\t\tMAX EPISODE LENGTH reached! (",self.name,")"
 
 					if done == True:
-						if episode_step_count < BATCH_SIZE:
-							print "\t\tEpisode finished before filling a batch"
 						break
 
+				"""
+				Update the master network after finishing an episode
+				"""
 				if len(batch_buffer) > 0:
 					batch_loss = self.train(session, batch_buffer, 0)
 					episode_mean_loss += batch_loss
 					episode_batches += 1
+
+				episode_rewards.append(episode_reward)
+				episode_lengths.append(episode_step_count)
+				episode_mean_values.append(np.mean(episode_values))
 
 				global_count = session.run(self.increse_global_episode)
 
 				print "GC = ", global_count,"\tEpisode Reward = ", episode_reward,"\tBatch Loss = ",episode_mean_loss / episode_batches, "\tEpisodes Steps = ",episode_step_count,"\tActions = ", actions_chosen, "\t(", self.name, ")"
 
 				if global_count % SAVER_INTERVAL == 0:
-					print "Saving model.............."
+					print ("Saving model..............")
 					saver.save(session,self.model_path+'/model-'+str(global_count)+'.cptk')
-					print "Model saved!"
+					print ("Model saved!")
+
+				if local_count % SUMMARY_INTERVAL == 0 and local_count != 0:
+					mean_reward = np.mean(episode_rewards)
+					mean_length = np.mean(episode_lengths)
+					mean_value = np.mean(episode_mean_values)
+					summary = tf.Summary()
+					summary.value.add(tag=SUMMARY_NAME+'/Reward', simple_value=float(mean_reward))
+					summary.value.add(tag=SUMMARY_NAME+'/Length', simple_value=float(mean_length))
+					summary.value.add(tag=SUMMARY_NAME+'/Value', simple_value=float(mean_value))
+					#summary.value.add(tag='Losses/Value Loss', simple_value=float(v_l))
+					#summary.value.add(tag='Losses/Policy Loss', simple_value=float(p_l))
+					#summary.value.add(tag='Losses/Entropy', simple_value=float(e_l))
+					#summary.value.add(tag='Losses/Grad Norm', simple_value=float(g_n))
+					#summary.value.add(tag='Losses/Var Norm', simple_value=float(v_n))
+					self.summary_writer.add_summary(summary, local_count)
+					self.summary_writer.flush()
+					episode_rewards = []
+					episode_lengths = []
+					episode_mean_values = []
+
+				local_count += 1
