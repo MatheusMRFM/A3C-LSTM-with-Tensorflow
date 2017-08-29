@@ -18,7 +18,8 @@ render = True
 save_img = False
 env = ATARI
 num_workers = 4		#multiprocessing.cpu_count()
-model_path = '/home/matheus/Documentos/Doutorado/Modelos_Treinamento/A3C/Tensorflow'
+#model_path = '/home/matheus/Documentos/Doutorado/Modelos_Treinamento/A3C/Tensorflow/'
+model_path = '/home/matheus/Documentos/Doutorado/Modelos_Treinamento/A3C_ASTG_v05/Pong'
 
 tf.reset_default_graph()
 

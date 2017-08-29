@@ -46,8 +46,8 @@ class Env_Atari(Environment):
 
 	#-------------------------------------------------------------------
 	def get_num_action(self):
-		if (self.env.spec.id == "Pong-v0" or self.env.spec.id == "Breakout-v0" or self.env.spec.id == "PongDeterministic-v3"):
-			return 3
+		#if (self.env.spec.id == "Pong-v0" or self.env.spec.id == "Breakout-v0" or self.env.spec.id == "PongDeterministic-v3"):
+		#	return 3
 		return self.env.action_space.n
 
 	#-------------------------------------------------------------------
@@ -64,10 +64,10 @@ class Env_Atari(Environment):
 		If the game is Pong or Breakout, the valid actions are 1, 2, 3, that is,
 		action 0 is removed. Therefore, we add 1 to the current action to make it valid
 		"""
-		if (self.env.spec.id == "Pong-v0" or self.env.spec.id == "Breakout-v0" or self.env.spec.id == "PongDeterministic-v3"):
-			a = action + 1
-		else:
-			a = action
+		#if (self.env.spec.id == "Pong-v0" or self.env.spec.id == "Breakout-v0" or self.env.spec.id == "PongDeterministic-v3"):
+		#	a = action + 1
+		#else:
+		a = action
 
 		R = 0
 		count = 0
