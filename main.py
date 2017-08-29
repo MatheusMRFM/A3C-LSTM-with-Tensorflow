@@ -13,13 +13,12 @@ from Worker import *
 - 	To save the images that are fed to the network, set save_img = True. For
 	more info in this option, check the "save_image" method of the Env_Atari class
 """
-load = True
-render = True
+load = False
+render = False
 save_img = False
 env = ATARI
 num_workers = 4		#multiprocessing.cpu_count()
-#model_path = '/home/matheus/Documentos/Doutorado/Modelos_Treinamento/A3C/Tensorflow/'
-model_path = '/home/matheus/Documentos/Doutorado/Modelos_Treinamento/A3C_ASTG_v05/Pong'
+model_path = './model'
 
 tf.reset_default_graph()
 

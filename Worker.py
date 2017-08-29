@@ -87,7 +87,7 @@ class Worker():
 		"""
 		self.env_id = env_id
 		if self.env_id == ATARI:
-			self.environment = Env_Atari('PongDeterministic-v3', render, num_id, save_img)
+			self.environment = Env_Atari('PongDeterministic-v4', render, num_id, save_img)
 		else:
 			self.environment = Env_Doom(render, num_id, save_img)
 		self.num_actions = self.environment.get_num_action()
@@ -260,7 +260,7 @@ class Worker():
 
 				global_count = session.run(self.increse_global_episode)
 
-				print "GC = ", global_count,"\tEpisode Reward = ", episode_reward,"\tBatch Loss = ",episode_mean_loss / episode_batches, "\tEpisodes Steps = ",episode_step_count,"\tActions = ", actions_chosen, "\t(", self.name, ")"
+				print ("GC = ", global_count,"\tEpisode Reward = ", episode_reward,"\tBatch Loss = ",episode_mean_loss / episode_batches, "\tEpisodes Steps = ",episode_step_count,"\tActions = ", actions_chosen, "\t(", self.name, ")")
 
 				if global_count % SAVER_INTERVAL == 0:
 					print ("Saving model..............")

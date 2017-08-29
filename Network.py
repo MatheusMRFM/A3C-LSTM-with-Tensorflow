@@ -24,7 +24,7 @@ DECAY 			= 0.99
 EPSILON 		= 0.1
 NORM_CLIP		= 40.0
 
-BATCH_SIZE = 20
+BATCH_SIZE = 40
 
 SMALL_VALUE = 1e-20
 
@@ -148,7 +148,6 @@ class Network():
 			Breaks the final state into 'c' and 'h'
 			"""
 			lstm_c, lstm_h = lstm_state_out
-			#self.state_out = [lstm_c[:1, :], lstm_h[:1, :]]
 			self.state_out = [lstm_c, lstm_h]
 			"""
 			Remove the extra fake batch_size=1 dimension, such that the
@@ -178,6 +177,9 @@ class Network():
 
 			self.policy = tf.nn.softmax(self.policy_linear)
 
+			"""
+			Choose an action based on the action policy
+			"""
 			self.action = tf.squeeze(tf.multinomial(self.policy_linear - tf.reduce_max(self.policy_linear, [1], keep_dims=True), 1), [1])
 
 			"""
