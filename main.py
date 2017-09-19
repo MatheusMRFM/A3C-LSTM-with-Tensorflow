@@ -17,7 +17,7 @@ load = False
 render = False
 save_img = False
 env = ATARI
-num_workers = 4		#multiprocessing.cpu_count()
+num_workers = 8		#multiprocessing.cpu_count()
 model_path = './model'
 
 tf.reset_default_graph()

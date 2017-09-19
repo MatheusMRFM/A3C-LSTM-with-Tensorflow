@@ -39,6 +39,36 @@ def normalized_columns_initializer(std=1.0):
 		return tf.constant(out)
 	return _initializer
 
+def flatten(x):
+    return tf.reshape(x, [-1, np.prod(x.get_shape().as_list()[1:])])
+
+def conv2d(x, num_filters, name, filter_size=(3, 3), stride=(1, 1), pad="SAME", dtype=tf.float32, collections=None):
+    with tf.variable_scope(name):
+        stride_shape = [1, stride[0], stride[1], 1]
+        filter_shape = [filter_size[0], filter_size[1], int(x.get_shape()[3]), num_filters]
+
+        # there are "num input feature maps * filter height * filter width"
+        # inputs to each hidden unit
+        fan_in = np.prod(filter_shape[:3])
+        # each unit in the lower layer receives a gradient from:
+        # "num output feature maps * filter height * filter width" /
+        #   pooling size
+        fan_out = np.prod(filter_shape[:2]) * num_filters
+        # initialize weights with random weights
+        w_bound = np.sqrt(6. / (fan_in + fan_out))
+
+        w = tf.get_variable("W", filter_shape, dtype, tf.random_uniform_initializer(-w_bound, w_bound),
+                            collections=collections)
+        b = tf.get_variable("b", [1, 1, 1, num_filters], initializer=tf.constant_initializer(0.0),
+                            collections=collections)
+        return tf.nn.conv2d(x, w, stride_shape, pad) + b
+
+def linear(x, size, name, initializer=None, bias_init=0):
+    w = tf.get_variable(name + "/w", [x.get_shape()[1], size], initializer=initializer)
+    b = tf.get_variable(name + "/b", [size], initializer=tf.constant_initializer(bias_init))
+    return tf.matmul(x, w) + b
+
+
 
 
 
@@ -57,7 +87,7 @@ class Network():
 		"""
 		Choose the optimier to be used
 		"""
-		#self.optimizer = tf.train.RMSPropOptimizer(learning_rate=LEARNING_RATE, decay=DECAY)
+		#self.optimizer = tf.train.RMSPropOptimizer(learning_rate=LEARNING_RATE, decay=DECAY, epsilon=EPSILON)
 		#self.optimizer = tf.train.AdadeltaOptimizer(LEARNING_RATE, rho=DECAY)
 		self.optimizer 	= tf.train.AdamOptimizer(LEARNING_RATE)
 		self.build_network()
@@ -70,29 +100,33 @@ class Network():
 			"""
 			Creates a series of convolutional layers
 			"""
-			conv = tf.layers.conv2d(inputs=self.state,
-									activation=tf.nn.elu,
-									bias_initializer=tf.constant_initializer(0.0),
-									filters=32, kernel_size=[3,3], strides=[2,2], padding='same')
-			conv = tf.layers.conv2d(inputs=conv,
-									activation=tf.nn.elu,
-									bias_initializer=tf.constant_initializer(0.0),
-									filters=32, kernel_size=[3,3], strides=[2,2], padding='same')
-			conv = tf.layers.conv2d(inputs=conv,
-									activation=tf.nn.elu,
-									bias_initializer=tf.constant_initializer(0.0),
-									filters=32, kernel_size=[3,3], strides=[2,2], padding='same')
-			conv = tf.layers.conv2d(inputs=conv,
-									activation=tf.nn.elu,
-									bias_initializer=tf.constant_initializer(0.0),
-									filters=32, kernel_size=[3,3], strides=[2,2], padding='same')
+			#conv = tf.layers.conv2d(inputs=self.state,
+			#						activation=tf.nn.elu,
+			#						bias_initializer=tf.constant_initializer(0.0),
+			#						filters=32, kernel_size=3, strides=2, padding='same')
+			#conv = tf.layers.conv2d(inputs=conv,
+			#						activation=tf.nn.elu,
+			#						bias_initializer=tf.constant_initializer(0.0),
+			#						filters=32, kernel_size=3, strides=2, padding='same')
+			#conv = tf.layers.conv2d(inputs=conv,
+			#						activation=tf.nn.elu,
+			#						bias_initializer=tf.constant_initializer(0.0),
+			#						filters=32, kernel_size=3, strides=2, padding='same')
+			#conv = tf.layers.conv2d(inputs=conv,
+			#						activation=tf.nn.elu,
+			#						bias_initializer=tf.constant_initializer(0.0),
+			#						filters=32, kernel_size=3, strides=2, padding='same')
+
+			conv = self.state
+			for i in range(4):
+				conv = tf.nn.elu(conv2d(conv, 32, "l{}".format(i + 1), [3, 3], [2, 2]))
 
 			h = slim.flatten(conv)
 			"""
 			To use a fully connected layer, just uncomment the following line
 				- h.get_shape() ===> (?, UNITS_H1)
 			"""
-			#h = layer.fully_connected(h, UNITS_H1, activation_fn=tf.nn.elu, bias_initializer=tf.constant_initializer(0.0))
+			#h = layer.fully_connected(h, UNITS_H1, activation_fn=tf.nn.elu, biases_initializer=tf.constant_initializer(0))
 
 			"""
 			Create new dimension, so that the input for the LSTM is (if using the
@@ -148,7 +182,7 @@ class Network():
 			Breaks the final state into 'c' and 'h'
 			"""
 			lstm_c, lstm_h = lstm_state_out
-			self.state_out = [lstm_c, lstm_h]
+			self.state_out = [lstm_c[:1, :], lstm_h[:1, :]]
 			"""
 			Remove the extra fake batch_size=1 dimension, such that the
 			output of the LSTM is [Conv_layer_batch_size, UNITS_LSTM]
@@ -157,23 +191,25 @@ class Network():
 			lstm_out = tf.reshape(lstm_out, [-1, UNITS_LSTM])
 
 
-
 			"""
 			Separate the LSTM layer output into two different streams:
 			the value function estimator and the action policy estimator
 				- self.policy.get_shape() ===> (?, NUM_ACTIONS)
 				- self.value.get_shape() ===> (?, 1)
 			"""
-			self.policy_linear = layer.fully_connected(	lstm_out,
-														self.num_actions,
-														activation_fn=None,
-														weights_initializer=normalized_columns_initializer(0.01),
-                										biases_initializer=tf.constant_initializer(0))
-			self.value = layer.fully_connected(	lstm_out,
-												1,
-												activation_fn=None,
-												weights_initializer=normalized_columns_initializer(1.0),
-                								biases_initializer=tf.constant_initializer(0))
+			#self.policy_linear = layer.fully_connected(	lstm_out,
+			#											self.num_actions,
+			#											activation_fn=None,
+			#											weights_initializer=normalized_columns_initializer(0.01),
+            #    										biases_initializer=tf.constant_initializer(0))
+			#self.value = layer.fully_connected(	lstm_out,
+			#									1,
+			#									activation_fn=None,
+			#									weights_initializer=normalized_columns_initializer(1.0),
+            #    								biases_initializer=tf.constant_initializer(0))
+
+			self.policy_linear 	= linear(lstm_out, self.num_actions, "action", normalized_columns_initializer(0.01))
+			self.value			= linear(lstm_out, 1, "value", normalized_columns_initializer(1.0))
 
 			self.policy = tf.nn.softmax(self.policy_linear)
 

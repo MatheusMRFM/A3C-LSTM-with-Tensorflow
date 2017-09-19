@@ -5,6 +5,7 @@ import scipy.misc
 from skimage.transform import resize
 from skimage.color import rgb2gray
 from skimage.io import imsave
+from scipy import misc
 
 MAX_EPISODE_LENGTH = 80000000
 lock = threading.Lock()
@@ -71,7 +72,7 @@ class Env_Atari(Environment):
 
 		R = 0
 		count = 0
-		for i in range(0, skip_count):
+		for c in range(0, skip_count):
 			s1, r, d, i = self.env.step(a)
 			R += r
 			count += 1
@@ -103,9 +104,15 @@ class Env_Atari(Environment):
 		"""
 		Transform the image into grayscale and resizes it
 		"""
-		s = image[34:34+160, :160]
-		s = resize(rgb2gray(s), (2*self.height, 2*self.width))
-		s = resize(s, (self.height, self.width))
+		##s = image[34:34+160, :160]
+		#s = resize(rgb2gray(image), (2*self.height, 2*self.width))
+		#s = resize(s, (self.height, self.width))
+		#return np.expand_dims(s, axis=2)
+		s = image.mean(2)
+		s = misc.imresize(s, (2*self.height, 2*self.width))
+		s = misc.imresize(s, (self.height, self.width))
+		s = s.astype(np.float32)
+		s *= (1.0 / 255.0)
 		return np.expand_dims(s, axis=2)
 
 	#-------------------------------------------------------------------

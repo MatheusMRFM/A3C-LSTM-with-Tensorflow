@@ -7,7 +7,7 @@ from Network import *
 #from Env_Doom import *
 from Env_Atari import *
 
-SAVER_INTERVAL = 100
+SAVER_INTERVAL = 500
 SUMMARY_INTERVAL = 4
 SUMMARY_NAME = "A3C_"
 
@@ -87,7 +87,7 @@ class Worker():
 		"""
 		self.env_id = env_id
 		if self.env_id == ATARI:
-			self.environment = Env_Atari('PongDeterministic-v4', render, num_id, save_img)
+			self.environment = Env_Atari('Breakout-v0', render, num_id, save_img)
 		else:
 			self.environment = Env_Doom(render, num_id, save_img)
 		self.num_actions = self.environment.get_num_action()
@@ -124,17 +124,17 @@ class Worker():
 		"""
 		Calculate the discounted rewards for each state in the batch
 		"""
-		R_batch = discount(rewards, bootstrap, len(rewards), self.local_net.gamma)
-		#R_batch = np.asarray(rewards.tolist() + [bootstrap])
-		#R_batch = discount_adv(R_batch, self.local_net.gamma)[:-1]
+		#R_batch = discount(rewards, bootstrap, len(rewards), self.local_net.gamma)
+		R_batch = np.asarray(rewards.tolist() + [bootstrap])
+		R_batch = discount_adv(R_batch, self.local_net.gamma)[:-1]
 
 		"""
 		Calculate the Advantage function for each step in the batch
 		"""
-		A_batch = calculate_advantage(rewards, values, bootstrap, len(rewards), self.local_net.gamma)
-		#value_plus = np.asarray(values.tolist() + [bootstrap])
-		#A_batch = rewards + self.local_net.gamma * value_plus[1:] - value_plus[:-1]
-		#A_batch = discount_adv(A_batch, self.local_net.gamma)
+		#A_batch = calculate_advantage(rewards, values, bootstrap, len(rewards), self.local_net.gamma)
+		value_plus = np.asarray(values.tolist() + [bootstrap])
+		A_batch = rewards + self.local_net.gamma * value_plus[1:] - value_plus[:-1]
+		A_batch = discount_adv(A_batch, self.local_net.gamma)
 
 		"""
 		Retrieve only the LSTM state that occured at the begining of the current
@@ -169,7 +169,7 @@ class Worker():
 		with session.as_default(), session.graph.as_default():
 			while not coordinator.should_stop():
 				"""
-				Copies the master network to the local network
+				Copy weights from global to local network
 				"""
 				session.run(self.update_local_net)
 
@@ -186,7 +186,7 @@ class Worker():
 				Resets the environment and the LSTM state
 				"""
 				s = self.environment.reset_environment()
-				lstm_state = self.local_net.lstm_state_init
+				last_lstm_state = self.local_net.lstm_state_init
 
 				"""
 				Loop for each episode
@@ -201,8 +201,8 @@ class Worker():
 					"""
 					a, v_batch, lstm_state = session.run([self.local_net.action, self.local_net.value, self.local_net.state_out],
 																		feed_dict={	self.local_net.state:[s],
-																					self.local_net.state_in[0]:lstm_state[0],
-				                            										self.local_net.state_in[1]:lstm_state[1]})
+																					self.local_net.state_in[0]:last_lstm_state[0],
+				                            										self.local_net.state_in[1]:last_lstm_state[1]})
 					v = v_batch[0][0]
 					a = a[0]
 					actions_chosen[a] += 1
@@ -217,9 +217,13 @@ class Worker():
 					"""
 					Insert data into the batch buffer
 					"""
-					batch_buffer.append([s,a,r,v,lstm_state])
+					batch_buffer.append([s,a,r,v,last_lstm_state])
 					episode_reward += r
 					episode_values.append(v)
+					"""
+					Update the last_lstm_state variable
+					"""
+					last_lstm_state = lstm_state
 
 					"""
 					Update the master network if the batch buffer is full
@@ -231,13 +235,16 @@ class Worker():
 						"""
 						v1_batch = session.run(self.local_net.value,
 											feed_dict={	self.local_net.state:[s1],
-														self.local_net.state_in[0]:lstm_state[0],
-														self.local_net.state_in[1]:lstm_state[1]})
+														self.local_net.state_in[0]:last_lstm_state[0],
+														self.local_net.state_in[1]:last_lstm_state[1]})
 						v1 = v1_batch[0][0]
 						batch_loss = self.train(session, batch_buffer, v1)
 						episode_mean_loss += batch_loss
 						episode_batches += 1
 						batch_buffer = []
+						"""
+						Copy weights from global to local network
+						"""
 						session.run(self.update_local_net)
 
 					s = s1
