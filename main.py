@@ -6,6 +6,7 @@ import time, random, threading
 import multiprocessing
 from Network import *
 from Worker import *
+from Summary import *
 
 """
 - 	To load a model located in 'model_path', just set load = True
@@ -14,10 +15,10 @@ from Worker import *
 	more info in this option, check the "save_image" method of the Env_Atari class
 """
 load = False
-render = False
+render = True
 save_img = False
 env = ATARI
-num_workers = 8		#multiprocessing.cpu_count()
+num_workers = 4		#multiprocessing.cpu_count()
 model_path = './model'
 
 tf.reset_default_graph()
@@ -27,17 +28,20 @@ Creates the master worker that maintains the master network.
 We then initialize the workers array.
 """
 global_episodes = tf.Variable(0,dtype=tf.int32,name='global_episodes',trainable=False)
+total_frames = tf.Variable(0,dtype=tf.int32,name='total_frames',trainable=False)
 with tf.device("/cpu:0"):
-	master_worker = Worker('global', env, GAMMA, global_episodes, model_path, False, False)
+	summary_writer = tf.summary.FileWriter("./train/"+SUMMARY_NAME)
+	summary = Summary(summary_writer)
+	master_worker = Worker('global', env, GAMMA, global_episodes, total_frames, model_path, False, False, num_workers, summary)
 	workers = []
 	for i in range(num_workers):
 		print (i)
-		workers.append(Worker(i, env, GAMMA, global_episodes, model_path, render, save_img))
+		workers.append(Worker(i, env, GAMMA, global_episodes, total_frames, model_path, render, save_img, num_workers, summary))
 
 """
 Initializes tensorflow variables
 """
-with tf.Session() as session:
+with tf.Session(config=tf.ConfigProto(intra_op_parallelism_threads=1)) as session:
 	saver = tf.train.Saver(max_to_keep=5)
 	if load:
 		print ("Loading....")

@@ -37,13 +37,14 @@ class Env_Atari(Environment):
 		returned by self.get_state_space()
 		"""
 		s = self.env.reset()
-		self.current_state = self.process_image(s)
+		s = self.process_image(s)
+		self.current_state = np.stack((s, s, s, s), axis = 2)
 
 		return self.current_state
 
 	#-------------------------------------------------------------------
 	def get_state_space(self):
-		return [self.height, self.width, self.channels]
+		return [self.height, self.width]
 
 	#-------------------------------------------------------------------
 	def get_num_action(self):
@@ -70,21 +71,20 @@ class Env_Atari(Environment):
 		#else:
 		a = action
 
-		R = 0
-		count = 0
-		for c in range(0, skip_count):
-			s1, r, d, i = self.env.step(a)
-			R += r
-			count += 1
-			if d == True:
-				break
+		s1, r, d, i = self.env.step(a)
+		"""
+		Clip reward to [-1, 1]
+		"""
+		r = max(-1,min(1,r))
+		s1 = self.process_image(s1)
 
-		r = R / count
-		self.current_state = self.process_image(s1)
+		s1_expanded = np.expand_dims(s1, axis=2)
+		self.current_state = np.append(self.current_state[:,:,1:], s1_expanded, axis = 2)
+
 		self.finished = d
 		self.info = i
 		if self.save_img == True:
-			self.save_image(self.current_state)
+			self.save_image(s1)
 
 		return [self.current_state, r, d]
 
@@ -104,16 +104,16 @@ class Env_Atari(Environment):
 		"""
 		Transform the image into grayscale and resizes it
 		"""
-		##s = image[34:34+160, :160]
+		s = image[34:34+160, :160]
 		#s = resize(rgb2gray(image), (2*self.height, 2*self.width))
 		#s = resize(s, (self.height, self.width))
 		#return np.expand_dims(s, axis=2)
-		s = image.mean(2)
 		s = misc.imresize(s, (2*self.height, 2*self.width))
 		s = misc.imresize(s, (self.height, self.width))
+		s = s.mean(2)
 		s = s.astype(np.float32)
 		s *= (1.0 / 255.0)
-		return np.expand_dims(s, axis=2)
+		return s
 
 	#-------------------------------------------------------------------
 	def help_message(self):
