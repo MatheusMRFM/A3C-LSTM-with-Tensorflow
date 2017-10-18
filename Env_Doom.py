@@ -48,12 +48,13 @@ class Env_Doom(Environment):
 	def reset_environment(self):
 		self.env.new_episode()
 		s = self.env.get_state().screen_buffer
-		self.current_state = self.process_image(s)
+		s = self.process_image(s)
+		self.current_state = np.stack((s, s, s, s), axis = 2)
 		return self.current_state
 
 	#-------------------------------------------------------------------
 	def get_state_space(self):
-		return [self.height, self.width, self.channels]
+		return self.height, self.width
 
 	#-------------------------------------------------------------------
 	def get_num_action(self):
@@ -64,18 +65,15 @@ class Env_Doom(Environment):
 		return self.current_state
 
 	#-------------------------------------------------------------------
-	def perform_action(self, action, skip_count):
-		R = 0
-		for i in range(0, skip_count):
-			R += self.env.make_action(self.actions[action]) / 100.0
-			d = self.env.is_episode_finished()
-			if d == True:
-				break
+	def perform_action(self, action):
+		r = self.env.make_action(self.actions[action]) / 100.0
+		d = self.env.is_episode_finished()
 
-		r = R / skip_count
 		if d == False:
 			s = self.env.get_state().screen_buffer
-			self.current_state = self.process_image(s)
+			s = self.process_image(s)
+			s_expanded = np.expand_dims(s, axis=2)
+			self.current_state = np.append(self.current_state[:,:,1:], s_expanded, axis = 2)
 
 		self.finished = d
 
@@ -98,7 +96,7 @@ class Env_Doom(Environment):
 	#-------------------------------------------------------------------
 	def process_image (self, image):
 		s = resize(image, (self.height, self.width))
-		return np.expand_dims(s, axis=2)
+		return s
 
 	#-------------------------------------------------------------------
 	def help_message(self):

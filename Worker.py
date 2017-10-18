@@ -7,9 +7,9 @@ from Network import *
 #from Env_Doom import *
 from Env_Atari import *
 
-MAX_STEPS 		= 10000000
+MAX_ITERATION = 500000000
 
-SAVER_INTERVAL = 100
+SAVER_INTERVAL 	= 100
 
 ATARI	= 0
 DOOM 	= 1
@@ -88,7 +88,7 @@ class Batch():
 #*******************************************************************************
 class Worker():
 
-	def __init__(self, num_id, env_id, gamma, global_episodes, total_frames, model_path, render, save_img, num_worker, summary):
+	def __init__(self, num_id, env_id, gamma, learning_rate, global_episodes, total_frames, model_path, render, save_img, num_worker, summary):
 		self.num_worker = num_worker
 		self.name = "worker_" + str(num_id)
 		self.summary = summary
@@ -106,7 +106,7 @@ class Worker():
 		"""
 		self.env_id = env_id
 		if self.env_id == ATARI:
-			self.environment = Env_Atari('Breakout-v3', render, num_id, save_img)
+			self.environment = Env_Atari('PongDeterministic-v4', render, num_id, save_img)
 		else:
 			self.environment = Env_Doom(render, num_id, save_img)
 		self.num_actions = self.environment.get_num_action()
@@ -115,11 +115,17 @@ class Worker():
 		"""
 		Create the local network of the corresponding worker
 		"""
-		self.local_net = Network(self.name, self.num_actions, self.width, self.height, 0, gamma)
+		self.local_net = Network(self.name, self.num_actions, self.width, self.height, 0, gamma, learning_rate)
 		self.update_local_net = self.local_net.update_network_op('worker_global')
 
 	#-------------------------------------------------------------------
-	def train(self, session, batch, steps):
+	def train(self, session, batch):
+		"""
+		Clip reward to [-1, 1]
+		"""
+		batch.rewards = np.array(batch.rewards)
+		np.clip(batch.rewards, -1.0, 1.0, out=batch.rewards)
+
 		"""
 		Calculate the discounted rewards for each state in the batch
 		"""
@@ -140,7 +146,7 @@ class Worker():
 		"""
 		Apply gradients w.r.t. the variables of the local network into the global network
 		"""
-		grads, batch_loss = session.run([self.local_net.apply_grads, self.local_net.total_loss],
+		_, batch_loss = session.run([self.local_net.apply_grads, self.local_net.total_loss],
 								feed_dict={	self.local_net.state_in[0]:lstm_state[0],
 											self.local_net.state_in[1]:lstm_state[1],
 											self.local_net.state	: batch.states,
@@ -163,11 +169,6 @@ class Worker():
 		"""
 		while not coordinator.should_stop():
 			"""
-			Copy weights from global to local network
-			"""
-			session.run(self.update_local_net)
-
-			"""
 			New episode starting
 			"""
 			if done:
@@ -184,26 +185,28 @@ class Worker():
 				actions_chosen = np.zeros((self.num_actions), np.int64)
 
 			"""
-			Save the first LSTM state of the current batch
+			Copy weights from global to local network and
+			save the first LSTM state of the current batch
 			"""
+			session.run(self.update_local_net)
 			batch.initial_feature = last_lstm_state
 
 			"""
 			Obtain BATCH_SIZE experiences
 			"""
 			for _ in range(0, BATCH_SIZE):
-				a, v_batch, last_lstm_state = session.run([self.local_net.action, self.local_net.value, self.local_net.state_out],
+				pi, v_batch, last_lstm_state = session.run([self.local_net.policy, self.local_net.value, self.local_net.state_out],
 																	feed_dict={	self.local_net.state:[s],
 																				self.local_net.state_in[0]:last_lstm_state[0],
 			                            										self.local_net.state_in[1]:last_lstm_state[1]})
 				v = v_batch[0][0]
-				a = a[0]
+				a = np.random.choice(a_indexes, p=pi[0])
 				actions_chosen[a] += 1
 
 				"""
 				Perform the action and then insert data into the batch
 				"""
-				s1, r, done = self.environment.perform_action(a, 0)
+				s1, r, done = self.environment.perform_action(a)
 				batch.add_data(s,a,r,v)
 				s = s1
 
@@ -231,7 +234,7 @@ class Worker():
 				batch.bootstrap = v1_batch[0][0]
 			else:
 				batch.bootstrap = 0.0
-			batch_loss = self.train(session, batch, frame_count)
+			batch_loss = self.train(session, batch)
 
 			"""
 			Update the Summary

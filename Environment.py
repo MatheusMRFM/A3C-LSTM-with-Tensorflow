@@ -2,8 +2,8 @@ import numpy as np
 import time, random
 from abc import ABCMeta, abstractmethod
 
-RESEIZE_HEIGHT = 47
-RESEIZE_WIDTH = 47
+RESEIZE_HEIGHT = 84
+RESEIZE_WIDTH = 84
 CHANNELS = 1
 
 class Environment():
@@ -30,7 +30,7 @@ class Environment():
 		pass
 
 	@abstractmethod
-	def perform_action(self, action, skip_count):
+	def perform_action(self, action):
 		pass
 
 	@abstractmethod

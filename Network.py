@@ -21,7 +21,7 @@ UNITS_LSTM = 256
 
 BETA 			= 0.01
 GAMMA 			= 0.99
-LEARNING_RATE 	= 1e-4
+LEARNING_RATE 	= 7e-4
 DECAY 			= 0.99
 EPSILON 		= 0.1
 NORM_CLIP		= 40.0
@@ -45,7 +45,7 @@ def normalized_columns_initializer(std=1.0):
 #*******************************************************************************
 #*******************************************************************************
 class Network():
-	def __init__(self, scope, num_actions, width, height, channels, gamma):
+	def __init__(self, scope, num_actions, width, height, channels, gamma, learning_rate):
 		self.scope = scope
 		self.num_actions = num_actions
 		self.width = width
@@ -56,11 +56,11 @@ class Network():
 		"""
 		Choose the optimier to be used
 		"""
-		#optimizer = tf.train.RMSPropOptimizer(	learning_rate=self.lr_in,
-		#										decay=DECAY,
-		#										epsilon=EPSILON)
-		#optimizer = tf.train.AdadeltaOptimizer(LEARNING_RATE, rho=DECAY)
-		self.optimizer 	= tf.train.AdamOptimizer(LEARNING_RATE)
+		self.optimizer = tf.train.RMSPropOptimizer(	learning_rate=learning_rate,
+													decay=DECAY,
+													epsilon=EPSILON)
+		#self.optimizer = tf.train.AdadeltaOptimizer(LEARNING_RATE, rho=DECAY)
+		#self.optimizer = tf.train.AdamOptimizer(LEARNING_RATE)
 
 		self.build_network()
 		self.prepare_loss_function()
@@ -73,28 +73,28 @@ class Network():
 			Creates a series of convolutional layers
 			"""
 			conv = tf.layers.conv2d(inputs=self.state,
-									activation=tf.nn.elu,
+									activation=tf.nn.relu,
 									bias_initializer=tf.constant_initializer(0.0),
-									filters=32, kernel_size=3, strides=2, padding='same')
+									filters=16, kernel_size=8, strides=4, padding='valid')
 			conv = tf.layers.conv2d(inputs=conv,
-									activation=tf.nn.elu,
+									activation=tf.nn.relu,
 									bias_initializer=tf.constant_initializer(0.0),
-									filters=32, kernel_size=3, strides=2, padding='same')
-			conv = tf.layers.conv2d(inputs=conv,
-									activation=tf.nn.elu,
-									bias_initializer=tf.constant_initializer(0.0),
-									filters=32, kernel_size=3, strides=2, padding='same')
-			conv = tf.layers.conv2d(inputs=conv,
-									activation=tf.nn.elu,
-									bias_initializer=tf.constant_initializer(0.0),
-									filters=32, kernel_size=3, strides=2, padding='same')
+									filters=32, kernel_size=4, strides=2, padding='valid')
+			# conv = tf.layers.conv2d(inputs=conv,
+			# 						activation=tf.nn.elu,
+			# 						bias_initializer=tf.constant_initializer(0.0),
+			# 						filters=32, kernel_size=3, strides=2, padding='same')
+			# conv = tf.layers.conv2d(inputs=conv,
+			# 						activation=tf.nn.elu,
+			# 						bias_initializer=tf.constant_initializer(0.0),
+			# 						filters=32, kernel_size=3, strides=2, padding='same')
 
 			h = slim.flatten(conv)
 			"""
 			To use a fully connected layer, just uncomment the following line
 				- h.get_shape() ===> (?, UNITS_H1)
 			"""
-			#h = layer.fully_connected(h, UNITS_H1, activation_fn=tf.nn.elu, biases_initializer=tf.constant_initializer(0))
+			h = layer.fully_connected(h, UNITS_H1, activation_fn=tf.nn.relu, biases_initializer=tf.constant_initializer(0.0))
 
 			"""
 			Create new dimension, so that the input for the LSTM is (if using the
@@ -143,9 +143,10 @@ class Network():
 				- lstm_out.get_shape() ===> (1, ?, UNITS_LSTM)
 				- lstm_state.get_shape() ===> (1, ?, UNITS_LSTM)
 			"""
-			lstm_out, lstm_state_out = tf.nn.dynamic_rnn(lstm_cell, lstm_input, initial_state=lstm_state_in,
-			 												sequence_length=step_size, time_major=False)
-
+			lstm_out, lstm_state_out = tf.nn.dynamic_rnn(	lstm_cell, lstm_input,
+															initial_state=lstm_state_in,
+			 												sequence_length=step_size,
+															time_major=False)
 			"""
 			Breaks the final state into 'c' and 'h'
 			"""
@@ -165,23 +166,16 @@ class Network():
 				- self.policy.get_shape() ===> (?, NUM_ACTIONS)
 				- self.value.get_shape() ===> (?, 1)
 			"""
-			self.policy_linear = layer.fully_connected(	lstm_out,
-														self.num_actions,
-														activation_fn=None,
-														weights_initializer=normalized_columns_initializer(0.01),
-               											biases_initializer=tf.constant_initializer(0))
+			self.policy = layer.fully_connected(lstm_out,
+												self.num_actions,
+												activation_fn=tf.nn.softmax,
+												weights_initializer=normalized_columns_initializer(0.01),
+               									biases_initializer=tf.constant_initializer(0))
 			self.value = layer.fully_connected(	lstm_out,
 												1,
 												activation_fn=None,
 												weights_initializer=normalized_columns_initializer(1.0),
                									biases_initializer=tf.constant_initializer(0))
-
-			self.policy = tf.nn.softmax(self.policy_linear)
-
-			"""
-			Choose an action based on the action policy
-			"""
-			self.action = tf.squeeze(tf.multinomial(self.policy_linear - tf.reduce_max(self.policy_linear, [1], keep_dims=True), 1), [1])
 
 	#-------------------------------------------------------------------
 	def prepare_loss_function(self):
@@ -200,7 +194,7 @@ class Network():
 			v = tf.reshape(self.value, [-1])
 
 			log_policy = tf.log(tf.clip_by_value(self.policy, SMALL_VALUE, 1.0))
-			responsible_outputs = tf.reduce_sum(log_policy * actions_onehot, [1])
+			responsible_outputs = tf.reduce_sum(tf.multiply(log_policy, actions_onehot), reduction_indices=1)
 			"""
 			Loss funtions:
 			  - Value Loss retrieved from "Asynchronous Methods for Deep

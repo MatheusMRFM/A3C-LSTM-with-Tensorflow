@@ -44,12 +44,10 @@ class Env_Atari(Environment):
 
 	#-------------------------------------------------------------------
 	def get_state_space(self):
-		return [self.height, self.width]
+		return self.height, self.width
 
 	#-------------------------------------------------------------------
 	def get_num_action(self):
-		#if (self.env.spec.id == "Pong-v0" or self.env.spec.id == "Breakout-v0" or self.env.spec.id == "PongDeterministic-v3"):
-		#	return 3
 		return self.env.action_space.n
 
 	#-------------------------------------------------------------------
@@ -57,25 +55,13 @@ class Env_Atari(Environment):
 		return self.current_state
 
 	#-------------------------------------------------------------------
-	def perform_action(self, action, skip_count):
+	def perform_action(self, action):
 		if self.render == True:
 			lock.acquire()
 			self.env.render()
 			lock.release()
-		"""
-		If the game is Pong or Breakout, the valid actions are 1, 2, 3, that is,
-		action 0 is removed. Therefore, we add 1 to the current action to make it valid
-		"""
-		#if (self.env.spec.id == "Pong-v0" or self.env.spec.id == "Breakout-v0" or self.env.spec.id == "PongDeterministic-v3"):
-		#	a = action + 1
-		#else:
-		a = action
 
-		s1, r, d, i = self.env.step(a)
-		"""
-		Clip reward to [-1, 1]
-		"""
-		r = max(-1,min(1,r))
+		s1, r, d, i = self.env.step(action)
 		s1 = self.process_image(s1)
 
 		s1_expanded = np.expand_dims(s1, axis=2)
@@ -86,7 +72,7 @@ class Env_Atari(Environment):
 		if self.save_img == True:
 			self.save_image(s1)
 
-		return [self.current_state, r, d]
+		return self.current_state, r, d
 
 	#-------------------------------------------------------------------
 	def save_image(self, image):
@@ -108,7 +94,7 @@ class Env_Atari(Environment):
 		#s = resize(rgb2gray(image), (2*self.height, 2*self.width))
 		#s = resize(s, (self.height, self.width))
 		#return np.expand_dims(s, axis=2)
-		s = misc.imresize(s, (2*self.height, 2*self.width))
+		#s = misc.imresize(s, (2*self.height, 2*self.width))
 		s = misc.imresize(s, (self.height, self.width))
 		s = s.mean(2)
 		s = s.astype(np.float32)
